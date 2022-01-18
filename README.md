@@ -1,5 +1,5 @@
 # ARIMA-model-for-marketing-indices
-# If the time series data is not stationary, what are the consequences?
+If the time series data is not stationary, what are the consequences?\
 The book Econometrics By Example by Damodar Gujarati said that if the time series data is not stationary:
 First, we can study its behaviour only for the period under consideration. Because mean and variance of a nonstationary time serie are not constant, so each time series will be a different case. Therefore, we can not generalize it to other time periods. It leads to forecasting purposes will be of little practical value.
 Second, if we regress two or more time series which are all non-stationary, the result may lead to the phenomenon of spurious or nonsense regression. Because the covariance between two time periods depends not only on the distance between the two time periods but also the actual time at which the covariance is computed, R2 value may be high or t-stats of t and F tests of some regression coefficients may be more statistically significant, but we can see that they are not reliable.
