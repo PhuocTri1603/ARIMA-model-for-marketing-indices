@@ -1,0 +1,216 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Aug  9 16:45:29 2021
+
+@author: MyPC
+"""
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.graphics.tsaplots import plot_pacf
+from statsmodels.tsa.stattools import acf
+from statsmodels.tsa.stattools import pacf
+from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from math import sqrt
+from sklearn.metrics import mean_squared_error
+
+"""Dẫn đường link đến file dữ liệu lưu trữ"""
+
+x = input("Nhập đường link đến thư mục lưu trữ file dữ liệu: ")
+          
+print(x)
+
+os.chdir(x)
+
+"""Chọn file dữ liệu"""
+
+y = input("Nhập file dữ liệu muốn dự báo: ")
+
+try:
+    df = pd.read_excel(y)
+    print(df)
+except:
+    x = input("Nhập lại đường link trong dấu ngoặc kép: ")
+    os.chdir(x)
+    y = input("Nhập lại tên file trong dấu ngoặc kép: ")
+    df = pd.read_excel(y)
+    print(df)
+        
+"""Tạo file kết quả"""
+writer = pd.ExcelWriter("Results_" + y, engine="xlsxwriter")
+df.to_excel(writer, sheet_name = 'Dữ liệu gốc', index=False)
+
+
+"""Biểu đồ dữ liệu"""
+def plotgraph(df):
+
+    plotfile = pd.DataFrame()
+    plotfile.to_excel(writer, sheet_name = "Biểu đồ dữ liệu")
+    fig, axs = plt.subplots(2,1, figsize=(12,6))
+    axs[0].plot(df["Date"], df["DAU"])
+    axs[0].set_ylabel("DAU")
+    axs[1].plot(df["Date"], np.log(df["Rev Total (USD)"]))
+    axs[1].set_ylabel("Rev")
+    axs[0].grid(True)
+    axs[1].grid(True)
+  
+    fig.tight_layout()
+    fig.suptitle("Biểu đồ dữ liệu", fontsize = 16)
+    fig.savefig("Bieu_do_du_lieu.png")
+    writer.sheets["Biểu đồ dữ liệu"].insert_image('C2', "Bieu_do_du_lieu.png")
+    return plt.show()
+
+print("Biểu đồ của Game trong quãng thời gian qua:\n ")
+plotgraph(df)
+
+"""Kiểm tra dữ liệu có tính thời vụ hay không"""
+
+def ss(df, y):
+    x = df[y]
+    logx = np.log(x)
+    logx = logx.replace(-np.inf,0)
+    s = False
+    if acf(logx)[6]>0.8:
+        s = True
+    return s
+
+s1 = ss(df, "DAU")
+s2 = ss(df, "Rev Total (USD)")
+
+    
+"""Chọn các tham số cho mô hình ARIMA"""
+
+def pdq(df, y):
+    x = df[y]
+    logx = np.log(x)
+    logx = logx.replace(-np.inf, 0)
+    p=0
+    d=0
+    q=0
+    a=pacf(logx)
+    b=pacf(logx, alpha=0.05)[1]
+    c=[]
+    
+    for i in range(len(a)):
+        l = a[i] - b[i][0]
+        c.append(l)
+    for i in range(len(a)):
+        if a[i]<c[i]:
+            p=i-1
+            break
+    
+    e = pd.DataFrame(acf(logx))
+    esum = e.diff(1).sum()[0]
+    if esum<-1.1:
+        q=2
+        d=1
+        p=0
+    return p,d,q
+
+order1 = pdq(df, "DAU")
+order2 = pdq(df, "Rev Total (USD)")
+    
+
+"""Chạy mô hình ARIMA và biểu diễn kết quả dự báo"""
+
+def AR(df, y, s, o, days):
+    
+    X = pd.DataFrame()
+    X["Date"], X[y] = df["Date"], df[y]
+    X = X.sort_values("Date", ignore_index=True)
+    
+    if s == True:
+        print("SARIMAX")
+        model = SARIMAX(np.log(X[y]).replace(-np.inf,0),seasonal_order=(2, 1, 0, 7))
+        model_fit = model.fit()
+        forecast = np.power(np.e, model_fit.forecast(days))
+    else: 
+        print("ARIMA")
+        model = ARIMA(np.log(X[y]).replace(-np.inf,0), order=o)
+        model_fit = model.fit()
+        forecast = np.power(np.e, model_fit.forecast(days)[0])
+    
+    predict = model_fit.predict(typ = "levels")
+    X[y + " Ước lượng"] = np.power(np.e, predict)
+    
+    X = X.dropna()
+    
+    R = sqrt(mean_squared_error(X.loc[(df["Date"]>"2021-06")][y], X.loc[(df["Date"]>"2021-06")][y + " Ước lượng"]))
+                                        
+    
+    start_date = X["Date"].values[len(X)-1]
+    date_list = []
+    
+    for i in range(days):
+        a_date = start_date + np.timedelta64(i, "D")
+        date_list.append(a_date)
+    X2 = pd.DataFrame()
+    X2[str(y) + " Dự báo"] = forecast
+    X2["Date"] = date_list
+    
+    X2.dropna()
+    print("Dữ liệu ước lượng:\n \n" + str(X))
+    X.to_excel(writer, sheet_name = "Ước lượng " + str(y), index = False)
+    print("\n \n \n \nDữ liệu dự báo:\n\n " + str(X2))
+    X2.to_excel(writer, sheet_name = "Dự báo " + str(y), index = False)
+    
+    scorefile = pd.DataFrame()
+    scorefile.to_excel(writer, sheet_name = 'Sai số ' + str(y))    
+    print("\n \n \n \nSai số của mô hình:\n \n " + str(R))
+    writer.sheets['Sai số ' + str(y)].write('A2',"Sai số của mô hình: " + str(R) )
+    
+    
+    summfile = pd.DataFrame()
+    summfile.to_excel(writer, sheet_name = 'Bảng hồi quy ' + str(y))
+    print("\n \n \n \nBảng kết quả:\n\n " + str(model_fit.summary()))
+    summ = model_fit.summary().as_csv()
+    
+    col = 0
+    row = 0
+    line = str()
+    for i in summ:
+        if i == " ":
+            continue
+        if i != "\n":
+            if i != ",":
+               line += i
+            else:
+                writer.sheets["Bảng hồi quy " + str(y)].write(row, col, line)
+                line = str()
+                col +=1
+        else:
+            col = 0
+            row += 1
+            line = str()
+        writer.sheets["Bảng hồi quy " + str(y)].write(row, col, line)
+
+                
+    
+    X = X.loc[(X["Date"]>"2021-06")]
+    plotfile = pd.DataFrame()
+    plotfile.to_excel(writer, sheet_name = "Biểu đồ dự báo " + str(y))
+    
+    plt.figure(figsize=(12,6))
+    plt.plot(X["Date"], X[y], label = "Thực tế")
+    plt.plot(X["Date"], X[y + " Ước lượng"], label = "Ước lượng")
+    plt.plot(X2["Date"], X2[str(y) + " Dự báo"], label = "Dự báo")
+    plt.xticks(rotation=30)
+    plt.grid(True)
+    plt.legend()
+    plt.title(str(y))
+    plt.savefig("Bieu_do_du_bao " + str(y) + ".png")
+    writer.sheets["Biểu đồ dự báo " + str(y)].insert_image('C2', "Bieu_do_du_bao " + str(y) + ".png")
+    
+    return summ
+
+
+AR(df, "DAU", s1, order1, 15)
+AR(df, "Rev Total (USD)", s2, order2, 15)
+
+writer.save()
+writer.close()
